@@ -156,6 +156,14 @@
                 }
                 i++;
             });
+            all_average = []
+            for (var k in aDict){
+                if (typeof aDict[k] !== 'function') {
+                    value = aDict[k]
+                    all_average.push(value);
+                }
+            }
+            aDict['serverdensity.service.status {"location":"ALL"}'] = (all_average.reduce((a, b) => a + b, 0) / all_average.length);
             console.log(rawData);
             data.addRows(rawData);
             return {
