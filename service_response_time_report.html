@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <title>Server Density Service Time Report</title>
+    <style type="text/css">
+        .flatpickr-calendar.open {
+            font-family: Arial;
+        }
+        input {
+            font-family: Arial;
+        }
+    </style>
+</head>
+
+<body style="margin:auto; text-align: center;">
+    <input type="password" name="token" id="token" oninput="setToken(this.value);" placeholder="Token">
+    <input type="text" id="datetimestart" placeholder="Please select Start Time" data-input onchange="setStart();" style="">
+    <input type="text" id="datetimeend" placeholder="Please select End Time" data-input onchange="setEnd();" style="">
+    <div id="content">
+        <div id="titles" style="text-align: center; font-family: Arial;">
+            <h1 id="title">Server Density Service Time Report</h1>
+            <h3 id="dates">Enter your Token and Device ID above and select your dates.</h3>
+        </div>
+        <div id="load" class="chart"></div>
+        <div id="load_table" class="chart"></div>
+    </div>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
+    <script src="https://www.google.com/jsapi"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script>
+        var token;
+        var date = new Date();
+        var firstDay = new Date(date.getFullYear(), date.getMonth(), 1);
+        var lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+
+        $("#datetimestart").flatpickr({
+            enableTime: true,
+            defaultDate: firstDay,
+            time_24hr: true,
+            dateFormat: 'Z',
+            altInput: true,
+            altFormat: 'Y-m-d H:i',
+        });
+
+        $("#datetimeend").flatpickr({
+            enableTime: true,
+            defaultDate: lastDay,
+            time_24hr: true,
+            dateFormat: 'Z',
+            altInput: true,
+            altFormat: 'Y-m-d H:i',
+        });
+
+        function setToken(t) {
+            token = t;
+            setDate();
+        }
+
+        function setStart(date) {
+            var element = document.getElementById('datetimestart');
+            if (element && element.value) {
+                firstDay = element.value;
+                setDate();
+            }
+        }
+
+        function setEnd(date) {
+            var element = document.getElementById('datetimeend');
+            if (element && element.value) {
+                lastDay = element.value;
+                setDate();
+            }
+        }
+
+        function setDate() {
+            if (typeof firstDay !== "undefined" && typeof lastDay !== "undefined" && typeof token !== "undefined") {
+                document.getElementsByClassName('chart').innerHTML = "";
+                getServices();
+
+            }
+        }
+
+        function setTitle() {
+                let options = {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                };
+                var monthNames = ["January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December"
+                ];
+                var ds = new Date(document.getElementById('datetimestart').value);
+                var de = new Date(document.getElementById('datetimeend').value);
+                const getLocale = () => (navigator.languages && navigator.languages.length) ? navigator.languages[0] : navigator.userLanguage || navigator.language || navigator.browserLanguage || 'en';
+                // Thanks to Zenoo @ stackoverflow: https://stackoverflow.com/a/52112155
+                document.getElementById('dates').innerHTML = ds.toLocaleString(getLocale, options) + " - " + de.toLocaleString(getLocale, options);
+        }
+
+        function parseData(results) {
+            series = results.series.sort((obj1, obj2) => obj2.pointlist.length - obj1.pointlist.length);
+            var data = new google.visualization.DataTable();
+            var alist = [];
+            data.addColumn('datetime', 'Time');
+            var i = 0;
+            series.forEach(function(s) {
+                delete s.tags.itemId;
+                    if (JSON.stringify(s.tags) === '{}') {
+                        data.addColumn('number', s.metric);
+                    } else {
+                        data.addColumn('number', s.metric + " " + JSON.stringify(s.tags));
+                    }
+                alist[i] = [];
+                i++;
+            });
+            var rawData = [];
+            var seriesCount = series.length;
+            series[0].pointlist.forEach(function(pl) {
+                let plist = [];
+                d = new Date(pl.x * 1000);
+                plist.push(d);
+                var i = 0;
+                series.forEach(function(s) {
+                    let obj = s.pointlist.find(obj => obj.x == pl.x);
+                    if (typeof obj != "undefined") {
+                            plist.push(parseFloat(obj.y));
+                            alist[i].push(parseFloat(obj.y));
+                    } else {
+                        plist.push(null);
+                    };
+                    i++;
+                });
+                series[0].pointlist.shift();
+                rawData.push(plist);
+            });
+            aDict = {};
+            i = 0;
+            series.forEach(function(s) {
+                if (JSON.stringify(s.tags) === '{}') {
+                    var sum = 0;
+                    for (var ii = 0; ii < alist[i].length; ii++) {
+                        sum += parseFloat(alist[i][ii]);
+                    }
+                    aDict[s.metric] = sum / alist[i].length;
+                } else {
+                    var sum = 0;
+                    for (var ii = 0; ii < alist[i].length; ii++) {
+                        sum += parseFloat(alist[i][ii]);
+                    }
+                    aDict[s.metric + " " + JSON.stringify(s.tags)] = sum / alist[i].length;
+                }
+                i++;
+            });
+            all_average = []
+            for (var k in aDict){
+                if (typeof aDict[k] !== 'function') {
+                    value = aDict[k]
+                    all_average.push(value);
+                }
+            }
+            aDict['serverdensity.service.time {"location":"ALL"}'] = (all_average.reduce((a, b) => a + b, 0) / all_average.length);
+            console.log(rawData);
+            data.addRows(rawData);
+            return {
+                data: data,
+                average: aDict
+            };
+        }
+
+        function formatUnits(data, unit, fractionDigits) {
+            var formatter = new google.visualization.NumberFormat({
+                suffix: unit,
+                fractionDigits: fractionDigits
+            });
+            for (var colIndex = 1; colIndex < data.getNumberOfColumns(); colIndex++) {
+                formatter.format(data, colIndex);
+            }
+            return data;
+        }
+
+        function drawTable(average, tableId, unit, fractionDigits) {
+            var tabledata = new google.visualization.DataTable();
+            tabledata.addColumn('string', 'Metric');
+            tabledata.addColumn('number', 'Average Value');
+            for (var k in average) {
+                if (average.hasOwnProperty(k)) {
+                    tabledata.addRow([k, average[k]]);
+                }
+            }
+            var table = new google.visualization.Table(document.getElementById(tableId));
+            //tabledata = formatUnits(tabledata, unit, fractionDigits);
+            table.draw(tabledata);
+        }
+
+        function getServices(){
+            setTitle();
+            var jsonData = $.get(
+                'https://api.serverdensity.io/inventory/services?token=' + token
+            ).success(function(results) {
+                console.log(results);
+                results.forEach(function(r) {
+                    console.log(r);
+                    let parsed = getServiceData(r);
+                    console.log(parsed);
+
+                });
+            });
+        }
+
+        function getServiceData(s){
+            var jsonData = $.post(
+                'https://api.serverdensity.io/metrics/v3/query/?token=' + token, {
+                    requests: '[{"metric":"serverdensity.service.time","scope":[{"item":"' + s._id + '"}],"tags":{"location":"*"}}]',
+                    start: flatpickr.parseDate(firstDay, "Z").toISOString(),
+                    end: flatpickr.parseDate(lastDay, "Z").toISOString()
+                }
+            ).success(function(results) {
+                var i =0;
+                while (results == "undefined") {
+                    i++;
+                    console.log(i);
+                }
+                var parsed = parseData(results);
+
+                    $("#content").append('<div class="chart" id="'+s._id+'"></div>');
+                    $("#content").append('<div class="chart" id="'+s._id+'_table"></div>');
+                   var chart = new google.visualization.LineChart($('#'+s._id).get(0));
+                    chart.draw(parsed.data, {
+                        title: s.name,
+                        legend: {
+                            position: 'top',
+                            maxLines: 5
+                        },
+                        selectionMode: 'multiple',
+                        tooltip: {
+                            trigger: 'hover'
+                        },
+                        aggregationTarget: 'category',
+                        interpolateNulls: false,
+                    });
+                    drawTable(parsed.average, s._id+'_table', 's', 2)
+                return parsed;
+            });
+        }
+
+        google.load('visualization', '1', {
+            packages: ['corechart', 'table']
+        });
+    </script>
+
+</body>
+
+</html>
